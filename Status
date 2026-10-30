@@ -1,280 +1,465 @@
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/HaKaiDevs/Project/refs/heads/main/Orion')))() 
-local ReplicatedStorage = game:GetService("ReplicatedStorage") 
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/HaKaiDevs/Project/refs/heads/main/Orion')))()
+
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer 
-local SelectedPlayer = LocalPlayer 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes") 
-local RunService = game:GetService("RunService") 
-local Heartbeat = RunService.Heartbeat 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
 
-local CurrentConnections = {} 
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
 
-pcall(function() 
-    local VirtualUser = game:GetService("VirtualUser") 
-    Players.LocalPlayer.Idled:Connect(function() 
-        VirtualUser:CaptureController() 
-        VirtualUser:ClickButton2(Vector2.new()) 
-    end) 
-end) 
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
 
-local Window = OrionLib:MakeWindow({ 
+getgenv().HaKai = false 
+getgenv().noclipConnection = nil
+
+_G.NoclipAtivo = false
+_G.AutoSpin = false
+_G.SpinSpeed = 20
+
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new(0, 0))
+    end)
+end)
+
+getgenv().alternarHaKai = function(estado)
+    getgenv().HaKai = estado
+    
+    if getgenv().HaKai then
+        if _G.NoclipAtivo and getgenv().iniciarNoclip then
+            getgenv().iniciarNoclip()
+        end
+    else
+        if getgenv().pararNoclip then getgenv().pararNoclip() end
+        
+        _G.AutoSpin = false
+        if getgenv().updateSpin and LocalPlayer.Character then
+            getgenv().updateSpin(LocalPlayer.Character)
+        end
+    
+        if getgenv().freezeConnection then
+            getgenv().freezeConnection:Disconnect()
+            getgenv().freezeConnection = nil
+            if LocalPlayer.Character then
+                local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then humanoid.PlatformStand = false end
+            end
+            getgenv().frozenPosition = nil
+        end
+        
+        _G.NoclipAtivo = false
+        
+        if OrionLib and OrionLib.Flags then
+            pcall(function()
+                local flags = OrionLib.Flags
+                if flags["ToggleNoclip"] and type(flags["ToggleNoclip"]) == "table" then flags["ToggleNoclip"]:Set(false) end
+                if flags["ToggleAutoSpin"] and type(flags["ToggleAutoSpin"]) == "table" then flags["ToggleAutoSpin"]:Set(false) end
+                if flags["ToggleFreeze"] and type(flags["ToggleFreeze"]) == "table" then flags["ToggleFreeze"]:Set(false) end
+            end)
+        end
+    end
+end
+
+getgenv().Window = OrionLib:MakeWindow({
     Name = "HaKai Hub", 
     HidePremium = true, 
     SaveConfig = false, 
-    IntroEnabled = true, 
-    IntroText = "Carregando HaKai Hub" 
-}) 
-
-local StatsTab = Window:MakeTab({ Name = "Status", Icon = "rbxassetid://4483345998", PremiumOnly = false }) 
-local SectionMonitor = StatsTab:AddSection({ Name = "Painel de Atributos do Jogador" }) 
-
-local StrengthLabel = StatsTab:AddLabel("Strength: N/A (+0/10s)") 
-local DurabilityLabel = StatsTab:AddLabel("Durability: N/A (+0/10s)") 
-local EnduranceLabel = StatsTab:AddLabel("Endurance: N/A (+0/10s)") 
-local SpeedLabel = StatsTab:AddLabel("Speed: N/A (+0/10s)") 
-local WinsLabel = StatsTab:AddLabel("Wins: N/A (+0/10s)") 
-
-local SectionPerfil = StatsTab:AddSection({ Name = "Informações Extras" }) 
-local BeltLabel = StatsTab:AddLabel("Belt: N/A") 
-local SkinLabel = StatsTab:AddLabel("Skin: N/A") 
-local PlaytimeLabel = StatsTab:AddLabel("Playtime: N/A") 
-
-local CurrentConnections = {}
-local UltimosValores = {}
-local GanhosPor10s = {}
-local CalculoAtivo = false
-
-local function ClearConnections() 
-    for _, Connection in ipairs(CurrentConnections) do 
-        if Connection then Connection:Disconnect() end 
-    end 
-    table.clear(CurrentConnections) 
-    CalculoAtivo = false 
-end 
-
-local function EncontrarAtributo(player, nome)
-    if not player then return nil end
-    local leaderstats = player:FindFirstChild("leaderstats")
-    if leaderstats then
-        local obj = leaderstats:FindFirstChild(nome)
-        if obj then return obj end
-    end
-    local objDireto = player:FindFirstChild(nome)
-    if objDireto then return objDireto end
-    
-    for _, sub in ipairs(player:GetChildren()) do
-        if sub:IsA("Folder") or sub:IsA("Configuration") then
-            local objSub = sub:FindFirstChild(nome)
-            if objSub then return objSub end
-        end
-    end
-    return nil
-end
-
-local function UpdateSelectedPlayerInfo() 
-    ClearConnections() 
-    if not SelectedPlayer then return end 
-    
-    local nomesAtributos = {"Strength", "Durability", "Endurance", "Speed", "Wins", "Belt", "EquippedSkin", "Skin", "Playtime"}
-    for _, nome in ipairs(nomesAtributos) do
-        GanhosPor10s[nome] = 0
-        local obj = EncontrarAtributo(SelectedPlayer, nome)
-        if obj and (obj:IsA("IntValue") or obj:IsA("NumberValue")) then
-            UltimosValores[nome] = obj.Value
-        else
-            UltimosValores[nome] = 0
-        end
-    end
-
-    local function RefreshStats() 
-        local str = EncontrarAtributo(SelectedPlayer, "Strength")
-        local dur = EncontrarAtributo(SelectedPlayer, "Durability")
-        local endur = EncontrarAtributo(SelectedPlayer, "Endurance")
-        local spd = EncontrarAtributo(SelectedPlayer, "Speed")
-        local wins = EncontrarAtributo(SelectedPlayer, "Wins")
-
-        StrengthLabel:Set("Strength: " .. (str and tostring(str.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Strength"]) .. "/10s)") 
-        DurabilityLabel:Set("Durability: " .. (dur and tostring(dur.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Durability"]) .. "/10s)") 
-        EnduranceLabel:Set("Endurance: " .. (endur and tostring(endur.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Endurance"]) .. "/10s)") 
-        SpeedLabel:Set("Speed: " .. (spd and tostring(spd.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Speed"]) .. "/10s)") 
-        WinsLabel:Set("Wins: " .. (wins and tostring(wins.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Wins"]) .. "/10s)") 
-    end 
-    
-    local function RefreshProfile() 
-        local belt = EncontrarAtributo(SelectedPlayer, "Belt")
-        local skin = EncontrarAtributo(SelectedPlayer, "EquippedSkin") or EncontrarAtributo(SelectedPlayer, "Skin")
-        local time = EncontrarAtributo(SelectedPlayer, "Playtime")
-
-        BeltLabel:Set("Belt: " .. (belt and tostring(belt.Value) or "N/A")) 
-        SkinLabel:Set("Skin: " .. (skin and tostring(skin.Value) or "N/A")) 
-        PlaytimeLabel:Set("Playtime: " .. (time and tostring(time.Value) or "N/A")) 
-    end 
-
-    RefreshStats() 
-    RefreshProfile() 
-    
-    for _, nome in ipairs(nomesAtributos) do
-        local obj = EncontrarAtributo(SelectedPlayer, nome)
-        if obj and (obj:IsA("IntValue") or obj:IsA("NumberValue") or obj:IsA("StringValue")) then
-            table.insert( 
-                CurrentConnections, 
-                obj:GetPropertyChangedSignal("Value"):Connect(function()
-                    RefreshStats()
-                    RefreshProfile()
-                end) 
-            ) 
-        end
-    end
-
-    CalculoAtivo = true
-    task.spawn(function()
-        while CalculoAtivo and SelectedPlayer and SelectedPlayer.Parent do
-            task.wait(10)
-            if not CalculoAtivo then break end
-
-            local statusFoco = {"Strength", "Durability", "Endurance", "Speed", "Wins"}
-            for _, nome in ipairs(statusFoco) do
-                local obj = EncontrarAtributo(SelectedPlayer, nome)
-                if obj and (obj:IsA("IntValue") or obj:IsA("NumberValue")) then
-                    local valorAtual = obj.Value
-                    local valorAntigo = UltimosValores[nome] or valorAtual
-                    
-                    local ganho = valorAtual - valorAntigo
-                    GanhosPor10s[nome] = ganho >= 0 and ganho or 0
-                
-                    UltimosValores[nome] = valorAtual
-                end
-            end
-            RefreshStats()
-        end
-    end)
-end 
-
-local function GetPlayerList() 
-    local List = {} 
-    for _, Plr in ipairs(Players:GetPlayers()) do 
-        table.insert(List, Plr.Name) 
-    end 
-    table.sort(List) 
-    return List 
-end 
-
-local PlayerDropdown 
-local function RefreshPlayers() 
-    if PlayerDropdown then 
-        PlayerDropdown:Refresh(GetPlayerList(), true) 
-    end 
-end 
-
-local SectionPlayers = StatsTab:AddSection({ Name = "Rastrear Outro Usuário" }) 
-PlayerDropdown = StatsTab:AddDropdown({ 
-    Name = "Selecionar Jogador", 
-    Default = LocalPlayer.Name, 
-    Options = GetPlayerList(), 
-    Callback = function(Value) 
-        local FoundPlayer = Players:FindFirstChild(Value) 
-        if FoundPlayer then 
-            SelectedPlayer = FoundPlayer 
-            UpdateSelectedPlayerInfo() 
-        end 
-    end 
-}) 
-
-StatsTab:AddButton({ 
-    Name = "Atualizar Lista de Jogadores", 
-    Callback = function() 
-        RefreshPlayers() 
-    end 
-}) 
-
-Players.PlayerAdded:Connect(RefreshPlayers) 
-Players.PlayerRemoving:Connect(RefreshPlayers) 
-
-SelectedPlayer = LocalPlayer
-UpdateSelectedPlayerInfo() 
-
-OrionLib:MakeNotification({ 
-    Name = "HaKai Hub Online", 
-    Content = "Interface de Monitoramento de Status (10s) Carregada!", 
-    Image = "rbxassetid://4483345998", 
-    Time = 5 
+    IntroEnabled = true,
+    IntroText = "Carregando HaKai Hub..."
 })
 
-local ExtraTab = Window:MakeTab({ Name = "FUNC A+", Icon = "rbxassetid://4483345998", PremiumOnly = false }) 
-ExtraTab:AddSection({ Name = "FUNC ADICIONAIS" }) 
-ExtraTab:AddButton({ 
-    Name = "Anti-Lag", 
-    Callback = function() 
-        loadstring(game:HttpGet('https://raw.githubusercontent.com/hakai0fc/ANTILAG/refs/heads/main/HAKAI2'))() 
-    end 
-}) 
-
-local PlayersTab = Window:MakeTab({ Name = "Teleports", Icon = "rbxassetid://4483345998", PremiumOnly = false }) 
-PlayersTab:AddSection({ Name = "PlayersFunctions" }) 
-
-local JogadoSelecionado = "" 
-local function obterListaJogadores() 
-    local lista = {} 
-    for _, p in pairs(Players:GetPlayers()) do 
-        if p ~= LocalPlayer then 
-            table.insert(lista, p.Name) 
-        end 
-    end 
-    return lista 
-end 
-
-local DropdownPlayers = PlayersTab:AddDropdown({ 
-    Name = "Selecionar Jogador", 
-    Default = "Nenhum", 
-    Options = obterListaJogadores(), 
-    Callback = function(Value) 
-        JogadoSelecionado = Value 
-    end 
-}) 
-
-PlayersTab:AddButton({ 
-    Name = "Atualizar Lista de Jogadores", 
-    Callback = function() 
-        DropdownPlayers:Refresh(obterListaJogadores(), true) 
-    end 
-}) 
-
-PlayersTab:AddButton({ 
-    Name = "Teleporte Jogador", 
-    Callback = function() 
-        pcall(function() 
-            local Alvo = Players:FindFirstChild(JogadoSelecionado) 
-            if Alvo and Alvo.Character and Alvo.Character:FindFirstChild("HumanoidRootPart") then 
-                local MeuChar = LocalPlayer.Character 
-                local MeuRoot = MeuChar and MeuChar:FindFirstChild("HumanoidRootPart") 
-                if MeuRoot then 
-                    MeuRoot.CFrame = Alvo.Character.HumanoidRootPart.CFrame * CFrame.new(0, 2, 0) 
-                    OrionLib:MakeNotification({ 
-                        Name = "Teleporte Realizado", 
-                        Content = "Você foi teletransportado para " .. JogadoSelecionado, 
-                        Image = "rbxassetid://4483345998", 
-                        Time = 3 
-                    }) 
-                end 
-            else 
-                OrionLib:MakeNotification({ 
-                    Name = "Erro no Teleporte", 
-                    Content = "Jogador inválido, morto ou não selecionado!", 
-                    Image = "rbxassetid://4483345998", 
-                    Time = 3 
-                }) 
-            end 
-        end) 
-    end 
-}) 
-
-getgenv().PlayersTab0 = Window:MakeTab({
-    Name = "Infinite2",
+getgenv().ExtraTab = getgenv().Window:MakeTab({
+    Name = "FUNC A+",
     Icon = "rbxassetid://4483345998",
     PremiumOnly = false
 })
 
-getgenv().PlayersTab0:AddButton({
+getgenv().ExtraTab:AddSection({ Name = "FUNC ADICIONAIS" })
+
+getgenv().ExtraTab:AddButton({
+    Name = "Anti-Lag",
+    Callback = function()
+        pcall(function()
+            loadstring(game:HttpGet('https://raw.githubusercontent.com/hakai0fc/ANTILAG/refs/heads/main/HAKAI2'))()
+        end)
+    end
+})
+
+getgenv().updateSpin = function(character)
+    if not character then return end
+    local humanRoot = character:FindFirstChild("HumanoidRootPart")
+    if not humanRoot then return end
+    
+    local filhosRoot = humanRoot:GetChildren()
+    for i = 1, #filhosRoot do
+        local v = filhosRoot[i]
+        if v.Name == "Spinning" then
+            v:Destroy()
+        end
+    end
+    
+    if _G.AutoSpin then
+        local Spin = Instance.new("AngularVelocity")
+        Spin.Name = "Spinning"
+        Spin.Attachment0 = humanRoot:FindFirstChildOfClass("Attachment") or Instance.new("Attachment", humanRoot)
+        Spin.MaxTorque = math.huge
+        Spin.AngularVelocity = Vector3.new(0, _G.SpinSpeed or 20, 0)
+        Spin.Parent = humanRoot
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    if _G.AutoSpin then
+        RunService.Heartbeat:Wait()
+        getgenv().updateSpin(char)
+    end
+end)
+
+getgenv().ExtraTab:AddToggle({
+    Name = "Ativar Auto Spin",
+    Default = false,
+    Flag = "ToggleAutoSpin", 
+    Callback = function(v)
+        _G.AutoSpin = v
+        getgenv().updateSpin(LocalPlayer.Character)
+    end
+})
+
+getgenv().ExtraTab:AddTextbox({
+    Name = "Velocidade do Spin",
+    Default = "20",
+    TextDisappear = true,
+    Callback = function(Value)
+        local num = tonumber(Value)
+        if num then
+            _G.SpinSpeed = num
+            if _G.AutoSpin then
+                getgenv().updateSpin(LocalPlayer.Character)
+            end
+            OrionLib:MakeNotification({
+                Name = "Spin Updated",
+                Content = "Speed: " .. tostring(num),
+                Image = "rbxassetid://4483345998",
+                Time = 3
+            })
+        else
+            OrionLib:MakeNotification({
+                Name = "Erro",
+                Content = "Insira apenas números!",
+                Image = "rbxassetid://4483345998",
+                Time = 3
+            })
+        end
+    end	  
+})
+
+local frozenParts = {}
+
+local badnamesHash = {
+    ["Head"] = true, ["UpperTorso"] = true, ["LowerTorso"] = true, ["RightUpperArm"] = true, 
+    ["LeftUpperArm"] = true, ["RightLowerArm"] = true, ["LeftLowerArm"] = true, ["RightHand"] = true, 
+    ["LeftHand"] = true, ["RightUpperLeg"] = true, ["LeftUpperLeg"] = true, ["RightLowerLeg"] = true, 
+    ["LeftLowerLeg"] = true, ["RightFoot"] = true, ["LeftFoot"] = true, ["Torso"] = true, 
+    ["Right Arm"] = true, ["Left Arm"] = true, ["Right Leg"] = true, ["Left Leg"] = true, 
+    ["HumanoidRootPart"] = true
+}
+
+getgenv().FREEZENOOB = function(v)
+    if (v:IsA("BasePart") or v:IsA("UnionOperation")) and not v.Anchored then
+        if badnamesHash[v.Name] then return end
+        
+        local character = LocalPlayer.Character
+        if character and v:IsDescendantOf(character) then return end
+        
+        local filhosV = v:GetChildren()
+        for i = 1, #filhosV do
+            local c = filhosV[i]
+            if c:IsA("BodyPosition") or c:IsA("BodyGyro") or c:IsA("BodyVelocity") then
+                c:Destroy()
+            end
+        end
+
+        local bodypos = Instance.new("BodyPosition")
+        bodypos.Parent = v
+        bodypos.Position = v.Position
+        bodypos.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        
+        local bodygyro = Instance.new("BodyGyro")
+        bodygyro.Parent = v
+        bodygyro.CFrame = v.CFrame
+        bodygyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        
+        if not table.find(frozenParts, v) then
+            frozenParts[#frozenParts + 1] = v
+        end
+    end
+end
+
+getgenv().freezeConnection = nil
+getgenv().frozenPosition = nil
+
+getgenv().ExtraTab:AddToggle({
+    Name = "Freeze Character",
+    Default = false,
+    Flag = "ToggleFreeze", 
+    Callback = function(Value)
+        local character = LocalPlayer.Character
+        local humanRoot = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if Value then
+            if humanRoot then
+                getgenv().frozenPosition = humanRoot.Position
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.PlatformStand = true
+                end
+                
+                getgenv().freezeConnection = RunService.Heartbeat:Connect(function()
+                    if character and humanRoot then
+                        humanRoot.AssemblyLinearVelocity = Vector3.zero
+                        humanRoot.AssemblyAngularVelocity = Vector3.zero
+                        humanRoot.CFrame = CFrame.new(getgenv().frozenPosition) * humanRoot.CFrame.Rotation
+                    end
+                end)
+            end
+        else
+            if getgenv().freezeConnection then
+                getgenv().freezeConnection:Disconnect()
+                getgenv().freezeConnection = nil
+            end
+            if character then
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.PlatformStand = false
+                end
+            end
+            getgenv().frozenPosition = nil
+        end
+    end
+})
+
+getgenv().iniciarNoclip = function()
+    if getgenv().noclipConnection then getgenv().noclipConnection:Disconnect() getgenv().noclipConnection = nil end
+    
+    getgenv().noclipConnection = RunService.Stepped:Connect(function()
+        local character = LocalPlayer.Character
+        if character then
+            local partesChar = character:GetChildren()
+            
+            for i = 1, #partesChar do
+                local child = partesChar[i]
+                if child:IsA("BasePart") then
+                    child.CanCollide = false
+                elseif child:IsA("Accessory") then
+                    local handle = child:FindFirstChild("Handle")
+                    if handle and handle:IsA("BasePart") then
+                        handle.CanCollide = false
+                    end
+                end
+            end
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if root then root.CanCollide = false end
+        end
+    end)
+end
+
+getgenv().pararNoclip = function()
+    if getgenv().noclipConnection then
+        getgenv().noclipConnection:Disconnect()
+        getgenv().noclipConnection = nil
+    end
+end
+
+getgenv().ExtraTab:AddToggle({
+    Name = "Noclip",
+    Default = false,
+    Flag = "ToggleNoclip",
+    Callback = function(Value)
+        _G.NoclipAtivo = Value
+        if _G.NoclipAtivo and getgenv().HaKai then
+            getgenv().iniciarNoclip()
+        else
+            getgenv().pararNoclip()
+        end
+	end    
+})
+
+getgenv().equipToolsLoop = getgenv().equipToolsLoop or nil
+getgenv().loopWalkSpeed = getgenv().loopWalkSpeed or nil
+getgenv().loopJumpPower = getgenv().loopJumpPower or nil
+getgenv().conexaoWsCharacter = getgenv().conexaoWsCharacter or nil
+getgenv().conexaoJpCharacter = getgenv().conexaoJpCharacter or nil
+
+local valorWalkSpeed = 16
+local valorJumpPower = 50
+
+getgenv().ExtraTab:AddToggle({
+    Name = "Auto Equipar Todas as Ferramentas",
+    Default = false,
+    Callback = function(Value)
+        if getgenv().equipToolsLoop then
+            getgenv().equipToolsLoop:Disconnect()
+            getgenv().equipToolsLoop = nil
+        end
+
+        if Value then
+            getgenv().equipToolsLoop = RunService.Stepped:Connect(function()
+                local character = LocalPlayer.Character
+                local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                
+                if character and backpack then
+                    local ferramentasMochila = backpack:GetChildren()
+                    for i = 1, #ferramentasMochila do
+                        local tool = ferramentasMochila[i]
+                        if tool:IsA("Tool") or tool:IsA("HopperBin") then
+                            tool.Parent = character
+                        end
+                    end
+                end
+            end)
+        else
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid:UnequipTools()
+            end
+        end
+    end
+})
+
+getgenv().ExtraTab:AddTextbox({
+    Name = "Definir Velocidade (WalkSpeed)",
+    Default = "16",
+    TextDisappear = false,
+    Callback = function(Value)
+        local num = tonumber(Value)
+        if num then
+            valorWalkSpeed = num
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = valorWalkSpeed
+            end
+        end
+    end	  
+})
+
+getgenv().ExtraTab:AddToggle({
+    Name = "Ativar SpeedPower",
+    Default = false,
+    Callback = function(Value)
+        if getgenv().loopWalkSpeed then getgenv().loopWalkSpeed:Disconnect() getgenv().loopWalkSpeed = nil end
+        if getgenv().conexaoWsCharacter then getgenv().conexaoWsCharacter:Disconnect() getgenv().conexaoWsCharacter = nil end
+
+        if Value then
+            local function aplicarVelocidade(humanoid)
+                if humanoid and humanoid.WalkSpeed ~= valorWalkSpeed then 
+                    humanoid.WalkSpeed = valorWalkSpeed 
+                end
+            end
+
+            getgenv().loopWalkSpeed = RunService.Heartbeat:Connect(function()
+                local character = LocalPlayer.Character
+                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                if humanoid then aplicarVelocidade(humanoid) end
+            end)
+
+            getgenv().conexaoWsCharacter = LocalPlayer.CharacterAdded:Connect(function(char)
+                local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+                if humanoid then aplicarVelocidade(humanoid) end
+            end)
+            
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then aplicarVelocidade(humanoid) end
+        else
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = 16
+            end
+        end
+    end
+})
+
+getgenv().ExtraTab:AddTextbox({
+    Name = "Definir Força do Pulo",
+    Default = "50",
+    TextDisappear = false,
+    Callback = function(Value)
+        local num = tonumber(Value)
+        if num then
+            valorJumpPower = num
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                if humanoid.UseJumpPower then
+                    humanoid.JumpPower = valorJumpPower
+                else
+                    humanoid.JumpHeight = valorJumpPower
+                end
+            end
+        end
+    end	  
+})
+
+getgenv().ExtraTab:AddToggle({
+    Name = "Ativar JumpPower",
+    Default = false,
+    Callback = function(Value)
+        if getgenv().loopJumpPower then getgenv().loopJumpPower:Disconnect() getgenv().loopJumpPower = nil end
+        if getgenv().conexaoJpCharacter then getgenv().conexaoJpCharacter:Disconnect() getgenv().conexaoJpCharacter = nil end
+
+        if Value then
+            local function aplicarPulo(humanoid)
+                if humanoid then
+                    if humanoid.UseJumpPower then
+                        if humanoid.JumpPower ~= valorJumpPower then humanoid.JumpPower = valorJumpPower end
+                    else
+                        if humanoid.JumpHeight ~= valorJumpPower then humanoid.JumpHeight = valorJumpPower end
+                    end
+                end
+            end
+
+            getgenv().loopJumpPower = RunService.Heartbeat:Connect(function()
+                local character = LocalPlayer.Character
+                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                if humanoid then aplicarPulo(humanoid) end
+            end)
+
+            getgenv().conexaoJpCharacter = LocalPlayer.CharacterAdded:Connect(function(char)
+                local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+                if humanoid then aplicarPulo(humanoid) end
+            end)
+            
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then aplicarPulo(humanoid) end
+        else
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                if humanoid.UseJumpPower then
+                    humanoid.JumpPower = 50
+                else
+                    humanoid.JumpHeight = 50
+                end
+            end
+        end
+    end
+})
+
+getgenv().ExtraTab2 = getgenv().Window:MakeTab({
+    Name = "Infinite",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+getgenv().ExtraTab2:AddButton({
     Name = "Infiniteyield",
     Callback = function()
         pcall(function()
@@ -285,7 +470,7 @@ getgenv().PlayersTab0:AddButton({
 
 getgenv().antiflingConnection = getgenv().antiflingConnection or nil
 
-getgenv().PlayersTab0:AddToggle({
+getgenv().ExtraTab2:AddToggle({
     Name = "Anti-Fling",
     Default = false,
     Callback = function(Value)
@@ -433,7 +618,7 @@ getgenv().SkidFlingMexendo = function(TargetPlayer)
                 RootPart.AssemblyAngularVelocity = rotLimite
             end
             task.wait()
-        until not TargetPlayer or not TargetPlayer.Character or TRootPart.AssemblyLinearVelocity.Magnitude > 3000 or THumanoid.Health <= 0 or tick() > tempoAtaque + 0.75
+        until not TargetPlayer or not TargetPlayer.Character or TRootPart.AssemblyLinearVelocity.Magnitude > 4000 or THumanoid.Health <= 0 or tick() > tempoAtaque + 1.65
         
         BV:Destroy()
         Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
@@ -447,42 +632,583 @@ getgenv().SkidFlingMexendo = function(TargetPlayer)
     end
 end
 
-getgenv().PlayersTab0:AddSection({ Name = "Ataques de Fling" })
+getgenv().obterListaFling = function()
+    local lista = {}
+    local todosPlayers = Players:GetPlayers()
+    for i = 1, #todosPlayers do
+        local p = todosPlayers[i]
+        if p ~= LocalPlayer then 
+            lista[#lista + 1] = p.Name
+        end
+    end
+    return lista
+end
 
-local DropdownFling = getgenv().PlayersTab0:AddDropdown({
+getgenv().ExtraTab2:AddSection({ Name = "Sistemas de Fling" })
+
+local DropdownFling = getgenv().ExtraTab2:AddDropdown({
     Name = "Selecionar Alvo do Fling",
     Default = "Nenhum",
-    Options = obterListaJogadores(),
+    Options = getgenv().obterListaFling and getgenv().obterListaFling() or {},
     Callback = function(Value)
         getgenv().FlingSelecionado = Value
-    end
+    end    
 })
 
-getgenv().PlayersTab0:AddButton({
+getgenv().ExtraTab2:AddButton({
     Name = "Atualizar Lista de Alvos",
     Callback = function()
-        DropdownFling:Refresh(obterListaJogadores(), true)
-    end
-})
-
-getgenv().PlayersTab0:AddButton({
-    Name = "Executar Fling Normal",
-    Callback = function()
-        local Alvo = Players:FindFirstChild(getgenv().FlingSelecionado)
-        if Alvo then
-            getgenv().SkidFling(Alvo)
+        if getgenv().obterListaFling then
+            DropdownFling:Refresh(getgenv().obterListaFling(), true)
         end
     end
 })
 
-getgenv().PlayersTab0:AddButton({
-    Name = "Executar Fling em Movimento",
+getgenv().ExtraTab2:AddButton({
+    Name = "HaKaiFling Player Parado",
     Callback = function()
-        local Alvo = Players:FindFirstChild(getgenv().FlingSelecionado)
-        if Alvo then
-            getgenv().SkidFlingMexendo(Alvo)
+        task.spawn(function()
+            local TPlayer = Players:FindFirstChild(getgenv().FlingSelecionado)
+            if TPlayer and TPlayer ~= LocalPlayer then
+                OrionLib:MakeNotification({
+                    Name = "Ataque HaKai",
+                    Content = "Fling Rápido em: " .. TPlayer.Name,
+                    Image = "rbxassetid://4483345998",
+                    Time = 2
+                })
+                getgenv().AllBool = false
+                if getgenv().SkidFling then getgenv().SkidFling(TPlayer) end
+            else
+                OrionLib:MakeNotification({Name = "Erro", Content = "Selecione um jogador válido!", Image = "rbxassetid://4483345998", Time = 2})
+            end
+        end)
+    end
+})
+
+getgenv().ExtraTab2:AddButton({
+    Name = "HaKaiFling Player Mexendo",
+    Callback = function()
+        task.spawn(function()
+            local TPlayer = Players:FindFirstChild(getgenv().FlingSelecionado)
+            if TPlayer and TPlayer ~= LocalPlayer then
+                OrionLib:MakeNotification({
+                    Name = "Ataque HaKai",
+                    Content = "Perseguindo e Flingando: " .. TPlayer.Name,
+                    Image = "rbxassetid://4483345998",
+                    Time = 2
+                })
+                getgenv().AllBool = false
+                if getgenv().SkidFlingMexendo then getgenv().SkidFlingMexendo(TPlayer) end
+            else
+                OrionLib:MakeNotification({Name = "Erro", Content = "Selecione um jogador válido!", Image = "rbxassetid://4483345998", Time = 2})
+            end
+        end)
+    end
+})
+
+getgenv().ExtraTab2:AddButton({
+    Name = "Fling All HaKai",
+    Callback = function()
+        task.spawn(function()
+            OrionLib:MakeNotification({
+                Name = "Destruição Mestre",
+                Content = "Iniciando Fling em massa no servidor!",
+                Image = "rbxassetid://4483345998",
+                Time = 4
+            })
+            getgenv().AllBool = true
+            
+            local listaDisponivel = Players:GetPlayers()
+            for i = 1, #listaDisponivel do
+                local x = listaDisponivel[i]
+                if x ~= LocalPlayer and x.Character then
+                    local hum = x.Character:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        if x.UserId ~= 1414978355 then
+                            if getgenv().SkidFling then getgenv().SkidFling(x) end
+                            task.wait(0.1) 
+                        end
+                    end
+                end
+            end
+            getgenv().AllBool = false
+        end)
+    end
+})
+
+Players.PlayerAdded:Connect(function(plr)
+    if getgenv().obterListaFling then
+        DropdownFling:Refresh(getgenv().obterListaFling(), true)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if getgenv().obterListaFling then
+        DropdownFling:Refresh(getgenv().obterListaFling(), true)
+    end
+end)
+
+getgenv().PlayersTab = getgenv().Window:MakeTab({
+    Name = "Teleports",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+getgenv().PlayersTab:AddSection({ Name = "PlayersFunctions" })
+
+local JogadoSelecionado = ""
+
+getgenv().obterListaJogadores = function()
+    local lista = {}
+    local todosJogadores = Players:GetPlayers()
+    for i = 1, #todosJogadores do
+        local p = todosJogadores[i]
+        if p ~= LocalPlayer then
+            lista[#lista + 1] = p.Name
+        end
+    end
+    return lista
+end
+
+local DropdownPlayers = getgenv().PlayersTab:AddDropdown({
+    Name = "Selecionar Jogador",
+    Default = "Nenhum",
+    Options = getgenv().obterListaJogadores(),
+    Callback = function(Value)
+        JogadoSelecionado = Value
+    end    
+})
+
+getgenv().PlayersTab:AddButton({
+    Name = "Atualizar Lista de Jogadores",
+    Callback = function()
+        if getgenv().obterListaJogadores then
+            DropdownPlayers:Refresh(getgenv().obterListaJogadores(), true)
         end
     end
 })
+
+getgenv().PlayersTab:AddButton({
+    Name = "Teleporte Jogador",
+    Callback = function()
+        pcall(function()
+            local Alvo = Players:FindFirstChild(JogadoSelecionado)
+            
+            if Alvo and Alvo.Character then
+                local AlvoRoot = Alvo.Character:FindFirstChild("HumanoidRootPart")
+                if AlvoRoot then
+                    local MeuChar = LocalPlayer.Character
+                    local MeuRoot = MeuChar and MeuChar:FindFirstChild("HumanoidRootPart")
+                    
+                    if MeuRoot then
+                        MeuRoot.AssemblyLinearVelocity = Vector3.zero
+                        MeuRoot.AssemblyAngularVelocity = Vector3.zero
+                        
+                        MeuRoot.CFrame = AlvoRoot.CFrame * CFrame.new(0, 2, 0)
+                        
+                        OrionLib:MakeNotification({
+                            Name = "Teleporte Realizado",
+                            Content = "Você foi teletransportado para " .. JogadoSelecionado,
+                            Image = "rbxassetid://4483345998",
+                            Time = 3
+                        })
+                        return
+                    end
+                end
+            end
+            
+            OrionLib:MakeNotification({
+                Name = "Erro no Teleporte",
+                Content = "Jogador inválido, morto ou não selecionado!",
+                Image = "rbxassetid://4483345998",
+                Time = 3
+            })
+        end)
+    end
+})
+
+getgenv().PlayersTab:AddSection({ Name = "Dojo Teleports" })
+
+local LocaisDojos = {
+    ["Safe Zone"] = Vector3.new(88, 3, 47),
+    ["Bag Safe Zone"] = Vector3.new(97, 3, 61),
+    ["Cobra Kai Frente"] = Vector3.new(36, 3, 38),
+    ["Cobra Kai Fundo"] = Vector3.new(31, 3, -55),
+    ["Miyagi Do"] = Vector3.new(-60, 5, -1008)
+}
+
+local LocalSelecionado = ""
+
+getgenv().PlayersTab:AddDropdown({
+    Name = "Escolher Destino",
+    Default = "Nenhum",
+    Options = {"Safe Zone", "Bag Safe Zone", "Cobra Kai Frente", "Cobra Kai Fundo", "Miyagi Do"},
+    Callback = function(Value)
+        LocalSelecionado = Value
+    end    
+})
+
+getgenv().PlayersTab:AddButton({
+    Name = "Teleportar para o Dojo",
+    Callback = function()
+        pcall(function()
+            local Coordenada = LocaisDojos[LocalSelecionado]
+            local MeuChar = LocalPlayer.Character
+            local MeuRoot = MeuChar and MeuChar:FindFirstChild("HumanoidRootPart")
+            
+            if Coordenada and MeuRoot then
+                MeuRoot.AssemblyLinearVelocity = Vector3.zero
+                MeuRoot.AssemblyAngularVelocity = Vector3.zero
+                
+                MeuRoot.CFrame = CFrame.new(Coordenada.X, Coordenada.Y + 2, Coordenada.Z)
+                
+                OrionLib:MakeNotification({
+                    Name = "Teleportado",
+                    Content = "Você foi levado para: " .. LocalSelecionado,
+                    Image = "rbxassetid://4483345998",
+                    Time = 3
+                })
+            else
+                OrionLib:MakeNotification({
+                    Name = "Falha no Teleporte",
+                    Content = "Por favor, selecione um dojo válido no menu!",
+                    Image = "rbxassetid://4483345998",
+                    Time = 3
+                })
+            end
+        end)
+    end
+})
+
+getgenv().SelectedPlayer = LocalPlayer
+getgenv().CurrentConnections = getgenv().CurrentConnections or {}
+getgenv().viewing = getgenv().viewing or nil
+getgenv().viewDied = getgenv().viewDied or nil
+getgenv().viewChanged = getgenv().viewChanged or nil
+getgenv().JogadorSelecionadoNoMenu = LocalPlayer.Name
+
+local historicosAtributos = {
+    ["Strength"] = { valores = {}, ganho = 0 },
+    ["Durability"] = { valores = {}, ganho = 0 }
+}
+
+getgenv().StatsTab = getgenv().Window:MakeTab({
+	Name = "Status",
+	Icon = "rbxassetid://4483345998",
+	PremiumOnly = false
+})
+
+local SectionMonitor = getgenv().StatsTab:AddSection({
+	Name = "Painel de Atributos do Jogador"
+})
+
+local StrengthLabel = getgenv().StatsTab:AddLabel("Strength: N/A")
+local DurabilityLabel = getgenv().StatsTab:AddLabel("Durability: N/A")
+local EnduranceLabel = getgenv().StatsTab:AddLabel("Endurance: N/A")
+local SpeedLabel = getgenv().StatsTab:AddLabel("Speed: N/A")
+local WinsLabel = getgenv().StatsTab:AddLabel("Wins: N/A")
+
+local SectionPerfil = getgenv().StatsTab:AddSection({
+	Name = "Informações Extras"
+})
+
+local BeltLabel = getgenv().StatsTab:AddLabel("Belt: N/A")
+local SkinLabel = getgenv().StatsTab:AddLabel("Skin: N/A")
+local PlaytimeLabel = getgenv().StatsTab:AddLabel("Playtime: N/A")
+
+local function ClearConnections()
+    local totalConexoes = #getgenv().CurrentConnections
+	for i = 1, totalConexoes do
+		local Connection = getgenv().CurrentConnections[i]
+        if Connection then
+            Connection:Disconnect()
+        end
+	end
+
+	table.clear(getgenv().CurrentConnections)
+    
+	table.clear(historicosAtributos["Strength"].valores)
+	table.clear(historicosAtributos["Durability"].valores)
+    historicosAtributos["Strength"].ganho = 0
+    historicosAtributos["Durability"].ganho = 0
+end
+
+getgenv().UpdateSelectedPlayerInfo = function()
+	ClearConnections()
+
+	if not getgenv().SelectedPlayer then return end
+
+	local Alvos = {
+		["Strength"] = StrengthLabel,
+		["Durability"] = DurabilityLabel,
+		["Endurance"] = EnduranceLabel,
+		["Speed"] = SpeedLabel,
+		["Wins"] = WinsLabel,
+		["Belt"] = BeltLabel,
+		["EquippedSkin"] = SkinLabel,
+		["Playtime"] = PlaytimeLabel
+	}
+
+    StrengthLabel:Set("Strength: N/A")
+    DurabilityLabel:Set("Durability: N/A")
+    EnduranceLabel:Set("Endurance: N/A")
+    SpeedLabel:Set("Speed: N/A")
+    WinsLabel:Set("Wins: N/A")
+    BeltLabel:Set("Belt: N/A")
+    SkinLabel:Set("Skin: N/A")
+    PlaytimeLabel:Set("Playtime: N/A")
+
+	local function AtualizarTexto(Objeto)
+		local Label = Alvos[Objeto.Name]
+		if Label then
+			if Objeto.Name == "EquippedSkin" then
+				Label:Set("Skin: " .. tostring(Objeto.Value))
+			elseif Objeto.Name == "Strength" or Objeto.Name == "Durability" then
+				local info = historicosAtributos[Objeto.Name]
+				if info.ganho > 0 then
+					Label:Set(Objeto.Name .. ": " .. tostring(Objeto.Value) .. " (+" .. tostring(info.ganho) .. "/10s)")
+				else
+					Label:Set(Objeto.Name .. ": " .. tostring(Objeto.Value))
+				end
+			else
+				Label:Set(Objeto.Name .. ": " .. tostring(Objeto.Value))
+			end
+		end
+	end
+
+	local function GerenciarCalculo10Segundos(Objeto)
+		if Objeto.Name == "Strength" or Objeto.Name == "Durability" then
+			task.spawn(function()
+				local info = historicosAtributos[Objeto.Name]
+				local valorInicial = tonumber(Objeto.Value) or 0
+				
+				table.insert(info.valores, { tempo = os.clock(), valor = valorInicial })
+				
+				task.wait(10)
+				
+				if not getgenv().SelectedPlayer then return end
+				local valorFinal = tonumber(Objeto.Value) or 0
+				
+				if #info.valores > 0 then
+					table.remove(info.valores, 1)
+				end
+				
+				local ganhoCalculado = valorFinal - valorInicial
+				if ganhoCalculado >= 0 then
+					info.ganho = ganhoCalculado
+					AtualizarTexto(Objeto)
+				end
+			end)
+		end
+	end
+
+	local function MonitorarObjeto(Objeto)
+		if (Objeto:IsA("IntValue") or Objeto:IsA("NumberValue") or Objeto:IsA("StringValue")) and Alvos[Objeto.Name] then
+			AtualizarTexto(Objeto)
+			GerenciarCalculo10Segundos(Objeto)
+			
+			local ConexaoMudanca = Objeto:GetPropertyChangedSignal("Value"):Connect(function()
+				AtualizarTexto(Objeto)
+				GerenciarCalculo10Segundos(Objeto)
+			end)
+			getgenv().CurrentConnections[#getgenv().CurrentConnections + 1] = ConexaoMudanca
+		end
+	end
+
+	local todosDescendentes = getgenv().SelectedPlayer:GetDescendants()
+	for i = 1, #todosDescendentes do
+		MonitorarObjeto(todosDescendentes[i])
+	end
+
+	local ConexaoNovosDescendentes = getgenv().SelectedPlayer.DescendantAdded:Connect(function(NovoObjeto)
+		task.defer(function()
+			if NovoObjeto and NovoObjeto.Parent then
+				MonitorarObjeto(NovoObjeto)
+			end
+		end)
+	end)
+	getgenv().CurrentConnections[#getgenv().CurrentConnections + 1] = ConexaoNovosDescendentes
+end
+
+getgenv().GetPlayerList = function()
+	local List = {}
+	local todosPlayers = Players:GetPlayers()
+	for i = 1, #todosPlayers do
+		List[#List + 1] = todosPlayers[i].Name
+	end
+	table.sort(List)
+	return List
+end
+
+getgenv().PlayerDropdown = nil
+
+local function RefreshPlayers()
+	if getgenv().PlayerDropdown and getgenv().GetPlayerList then
+		getgenv().PlayerDropdown:Refresh(getgenv().GetPlayerList(), true)
+	end
+end
+
+local SectionPlayers = getgenv().StatsTab:AddSection({
+    Name = "Rastrear Outro Usuário"
+})
+
+getgenv().PlayerDropdown = getgenv().StatsTab:AddDropdown({
+    Name = "Selecionar Jogador",
+    Default = LocalPlayer.Name,
+    Options = getgenv().GetPlayerList(),
+    Callback = function(Value)
+        getgenv().JogadorSelecionadoNoMenu = Value
+        local FoundPlayer = Players:FindFirstChild(Value)
+        if FoundPlayer then
+            getgenv().SelectedPlayer = FoundPlayer
+            getgenv().UpdateSelectedPlayerInfo()
+        end
+    end
+})
+
+getgenv().StatsTab:AddButton({
+    Name = "Inspecionar Jogador Selecionado",
+    Callback = function()
+        local FoundPlayer = Players:FindFirstChild(getgenv().JogadorSelecionadoNoMenu)
+        if FoundPlayer then
+            getgenv().SelectedPlayer = FoundPlayer
+            getgenv().UpdateSelectedPlayerInfo()
+            
+            if getgenv().viewDied then getgenv().viewDied:Disconnect() getgenv().viewDied = nil end
+            if getgenv().viewChanged then getgenv().viewChanged:Disconnect() getgenv().viewChanged = nil end
+            
+            getgenv().viewing = FoundPlayer
+            
+            if getgenv().viewing.Character then
+                local targetHum = getgenv().viewing.Character:FindFirstChildOfClass("Humanoid")
+                if targetHum then
+                    workspace.CurrentCamera.CameraSubject = targetHum
+                end
+            end
+            
+            getgenv().viewDied = getgenv().viewing.CharacterAdded:Connect(function(NewCharacter)
+                local Humanoid = NewCharacter:WaitForChild("Humanoid", 5)
+                if Humanoid then
+                    workspace.CurrentCamera.CameraSubject = Humanoid
+                end
+            end)
+            
+            getgenv().viewChanged = workspace.CurrentCamera:GetPropertyChangedSignal("CameraSubject"):Connect(function()
+                if getgenv().viewing and getgenv().viewing.Character then
+                    local TargetHum = getgenv().viewing.Character:FindFirstChildOfClass("Humanoid")
+                    if TargetHum and workspace.CurrentCamera.CameraSubject ~= TargetHum then
+                        workspace.CurrentCamera.CameraSubject = TargetHum
+                    end
+                end
+            end)
+            
+            OrionLib:MakeNotification({
+                Name = "Spectate",
+                Content = "Inspecionando: " .. FoundPlayer.Name,
+                Image = "rbxassetid://4483345998",
+                Time = 4
+            })
+        else
+            OrionLib:MakeNotification({
+                Name = "Erro",
+                Content = "Jogador não encontrado ou saiu do jogo.",
+                Image = "rbxassetid://4483345998",
+                Time = 4
+            })
+        end
+    end
+})
+
+getgenv().StatsTab:AddButton({
+    Name = "Parar de Inspecionar",
+    Callback = function()
+        if getgenv().viewDied then getgenv().viewDied:Disconnect() getgenv().viewDied = nil end
+        if getgenv().viewChanged then getgenv().viewChanged:Disconnect() getgenv().viewChanged = nil end
+        
+        getgenv().viewing = nil
+        getgenv().JogadorSelecionadoNoMenu = LocalPlayer.Name
+        getgenv().SelectedPlayer = LocalPlayer
+        
+        if getgenv().PlayerDropdown then
+            getgenv().PlayerDropdown:Set(LocalPlayer.Name)
+        end
+        
+        if getgenv().UpdateSelectedPlayerInfo then 
+            getgenv().UpdateSelectedPlayerInfo() 
+        end
+
+        if LocalPlayer.Character then
+            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                workspace.CurrentCamera.CameraSubject = humanoid
+            end
+        end
+        
+        OrionLib:MakeNotification({
+            Name = "Spectate",
+            Content = "Voltou para a sua própria câmera.",
+            Image = "rbxassetid://4483345998",
+            Time = 3
+        })
+    end
+})
+
+getgenv().StatsTab:AddButton({
+    Name = "Atualizar Lista de Jogadores",
+    Callback = function()
+        if getgenv().PlayerDropdown and getgenv().GetPlayerList then
+            getgenv().PlayerDropdown:Refresh(getgenv().GetPlayerList(), true)
+        end
+    end
+})
+
+Players.PlayerAdded:Connect(function(plr)
+    if getgenv().PlayerDropdown and getgenv().GetPlayerList then
+        getgenv().PlayerDropdown:Refresh(getgenv().GetPlayerList(), true)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if getgenv().PlayerDropdown and getgenv().GetPlayerList then
+        getgenv().PlayerDropdown:Refresh(getgenv().GetPlayerList(), true)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(Plr)
+    if getgenv().viewing and getgenv().viewing == Plr then
+        getgenv().viewing = nil
+        if getgenv().viewDied then getgenv().viewDied:Disconnect() getgenv().viewDied = nil end
+        if getgenv().viewChanged then getgenv().viewChanged:Disconnect() getgenv().viewChanged = nil end
+        
+        getgenv().JogadorSelecionadoNoMenu = LocalPlayer.Name
+        getgenv().SelectedPlayer = LocalPlayer
+        
+        if getgenv().PlayerDropdown then
+            getgenv().PlayerDropdown:Set(LocalPlayer.Name)
+        end
+        
+        if getgenv().UpdateSelectedPlayerInfo then 
+            getgenv().UpdateSelectedPlayerInfo() 
+        end
+        
+        if LocalPlayer.Character then
+            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                workspace.CurrentCamera.CameraSubject = humanoid
+            end
+        end
+        
+        OrionLib:MakeNotification({
+            Name = "Spectate",
+            Content = "O jogador inspecionado saiu do jogo",
+            Image = "rbxassetid://4483345998",
+            Time = 5
+        })
+    end
+end)
+
+if getgenv().UpdateSelectedPlayerInfo then 
+    getgenv().UpdateSelectedPlayerInfo() 
+end
 
 OrionLib:Init()
