@@ -28,25 +28,32 @@ local Window = OrionLib:MakeWindow({
 local StatsTab = Window:MakeTab({ Name = "Status", Icon = "rbxassetid://4483345998", PremiumOnly = false }) 
 local SectionMonitor = StatsTab:AddSection({ Name = "Painel de Atributos do Jogador" }) 
 
-local StrengthLabel = StatsTab:AddLabel("Strength: N/A") 
-local DurabilityLabel = StatsTab:AddLabel("Durability: N/A") 
-local EnduranceLabel = StatsTab:AddLabel("Endurance: N/A") 
-local SpeedLabel = StatsTab:AddLabel("Speed: N/A") 
-local WinsLabel = StatsTab:AddLabel("Wins: N/A") 
+local StrengthLabel = StatsTab:AddLabel("Strength: N/A (+0/10s)") 
+local DurabilityLabel = StatsTab:AddLabel("Durability: N/A (+0/10s)") 
+local EnduranceLabel = StatsTab:AddLabel("Endurance: N/A (+0/10s)") 
+local SpeedLabel = StatsTab:AddLabel("Speed: N/A (+0/10s)") 
+local WinsLabel = StatsTab:AddLabel("Wins: N/A (+0/10s)") 
 
 local SectionPerfil = StatsTab:AddSection({ Name = "Informações Extras" }) 
 local BeltLabel = StatsTab:AddLabel("Belt: N/A") 
 local SkinLabel = StatsTab:AddLabel("Skin: N/A") 
 local PlaytimeLabel = StatsTab:AddLabel("Playtime: N/A") 
 
+local CurrentConnections = {}
+local UltimosValores = {}
+local GanhosPor10s = {}
+local CalculoAtivo = false
+
 local function ClearConnections() 
     for _, Connection in ipairs(CurrentConnections) do 
         if Connection then Connection:Disconnect() end 
     end 
     table.clear(CurrentConnections) 
+    CalculoAtivo = false 
 end 
 
 local function EncontrarAtributo(player, nome)
+    if not player then return nil end
     local leaderstats = player:FindFirstChild("leaderstats")
     if leaderstats then
         local obj = leaderstats:FindFirstChild(nome)
@@ -68,6 +75,17 @@ local function UpdateSelectedPlayerInfo()
     ClearConnections() 
     if not SelectedPlayer then return end 
     
+    local nomesAtributos = {"Strength", "Durability", "Endurance", "Speed", "Wins", "Belt", "EquippedSkin", "Skin", "Playtime"}
+    for _, nome in ipairs(nomesAtributos) do
+        GanhosPor10s[nome] = 0
+        local obj = EncontrarAtributo(SelectedPlayer, nome)
+        if obj and (obj:IsA("IntValue") or obj:IsA("NumberValue")) then
+            UltimosValores[nome] = obj.Value
+        else
+            UltimosValores[nome] = 0
+        end
+    end
+
     local function RefreshStats() 
         local str = EncontrarAtributo(SelectedPlayer, "Strength")
         local dur = EncontrarAtributo(SelectedPlayer, "Durability")
@@ -75,11 +93,11 @@ local function UpdateSelectedPlayerInfo()
         local spd = EncontrarAtributo(SelectedPlayer, "Speed")
         local wins = EncontrarAtributo(SelectedPlayer, "Wins")
 
-        StrengthLabel:Set("Strength: " .. (str and tostring(str.Value) or "N/A")) 
-        DurabilityLabel:Set("Durability: " .. (dur and tostring(dur.Value) or "N/A")) 
-        EnduranceLabel:Set("Endurance: " .. (endur and tostring(endur.Value) or "N/A")) 
-        SpeedLabel:Set("Speed: " .. (spd and tostring(spd.Value) or "N/A")) 
-        WinsLabel:Set("Wins: " .. (wins and tostring(wins.Value) or "N/A")) 
+        StrengthLabel:Set("Strength: " .. (str and tostring(str.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Strength"]) .. "/10s)") 
+        DurabilityLabel:Set("Durability: " .. (dur and tostring(dur.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Durability"]) .. "/10s)") 
+        EnduranceLabel:Set("Endurance: " .. (endur and tostring(endur.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Endurance"]) .. "/10s)") 
+        SpeedLabel:Set("Speed: " .. (spd and tostring(spd.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Speed"]) .. "/10s)") 
+        WinsLabel:Set("Wins: " .. (wins and tostring(wins.Value) or "N/A") .. " (+" .. tostring(GanhosPor10s["Wins"]) .. "/10s)") 
     end 
     
     local function RefreshProfile() 
@@ -95,7 +113,6 @@ local function UpdateSelectedPlayerInfo()
     RefreshStats() 
     RefreshProfile() 
     
-    local nomesAtributos = {"Strength", "Durability", "Endurance", "Speed", "Wins", "Belt", "EquippedSkin", "Skin", "Playtime"}
     for _, nome in ipairs(nomesAtributos) do
         local obj = EncontrarAtributo(SelectedPlayer, nome)
         if obj and (obj:IsA("IntValue") or obj:IsA("NumberValue") or obj:IsA("StringValue")) then
@@ -108,6 +125,29 @@ local function UpdateSelectedPlayerInfo()
             ) 
         end
     end
+
+    CalculoAtivo = true
+    task.spawn(function()
+        while CalculoAtivo and SelectedPlayer and SelectedPlayer.Parent do
+            task.wait(10)
+            if not CalculoAtivo then break end
+
+            local statusFoco = {"Strength", "Durability", "Endurance", "Speed", "Wins"}
+            for _, nome in ipairs(statusFoco) do
+                local obj = EncontrarAtributo(SelectedPlayer, nome)
+                if obj and (obj:IsA("IntValue") or obj:IsA("NumberValue")) then
+                    local valorAtual = obj.Value
+                    local valorAntigo = UltimosValores[nome] or valorAtual
+                    
+                    local ganho = valorAtual - valorAntigo
+                    GanhosPor10s[nome] = ganho >= 0 and ganho or 0
+                
+                    UltimosValores[nome] = valorAtual
+                end
+            end
+            RefreshStats()
+        end
+    end)
 end 
 
 local function GetPlayerList() 
@@ -149,14 +189,16 @@ StatsTab:AddButton({
 
 Players.PlayerAdded:Connect(RefreshPlayers) 
 Players.PlayerRemoving:Connect(RefreshPlayers) 
+
+SelectedPlayer = LocalPlayer
 UpdateSelectedPlayerInfo() 
 
 OrionLib:MakeNotification({ 
     Name = "HaKai Hub Online", 
-    Content = "Interface e Status Visuais carregados com paleta de cores ativada!", 
+    Content = "Interface de Monitoramento de Status (10s) Carregada!", 
     Image = "rbxassetid://4483345998", 
     Time = 5 
-}) 
+})
 
 local ExtraTab = Window:MakeTab({ Name = "FUNC A+", Icon = "rbxassetid://4483345998", PremiumOnly = false }) 
 ExtraTab:AddSection({ Name = "FUNC ADICIONAIS" }) 
